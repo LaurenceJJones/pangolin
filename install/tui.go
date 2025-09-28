@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -169,9 +170,10 @@ const (
 	advancedConfigScreen    screenID = "advanced_config"
 	containerScreen         screenID = "container"
 	installContainersScreen screenID = "install_containers"
+	installScreen           screenID = "install"
 	crowdsecScreen          screenID = "crowdsec"
 	crowdsecManageScreen    screenID = "crowdsec_manage"
-	installScreen           screenID = "install"
+	crowdsecInstallScreen   screenID = "crowdsec_install"
 	setupTokenScreen        screenID = "setup_token"
 	completeScreen          screenID = "complete"
 )
@@ -235,14 +237,9 @@ func getNextScreen(currentScreen screenID, choice int, config Config) screenID {
 	case containerScreen:
 		return installContainersScreen
 	case installContainersScreen:
-		if choice == 0 { // Yes to install containers
-			return installScreen
-		}
-		// No to containers, check crowdsec
-		if !config.HybridMode {
-			return crowdsecScreen
-		}
-		return setupTokenScreen
+		// This screen should not be used in getNextScreen
+		// The user stays on this screen until they make a choice
+		return installScreen
 	case installScreen:
 		// After installation, check crowdsec
 		if !config.HybridMode {
@@ -256,7 +253,12 @@ func getNextScreen(currentScreen screenID, choice int, config Config) screenID {
 		// No to crowdsec
 		return setupTokenScreen
 	case crowdsecManageScreen:
-		return installScreen // Install crowdsec
+		if config.DoCrowdsecInstall {
+			return crowdsecInstallScreen // Install crowdsec
+		}
+		return setupTokenScreen // Skip to setup token if CrowdSec disabled
+	case crowdsecInstallScreen:
+		return setupTokenScreen // After CrowdSec installation, go to setup token
 	case setupTokenScreen:
 		return completeScreen
 	case completeScreen:
@@ -334,6 +336,9 @@ type model struct {
 	installLogs  []string
 	logsViewport viewport.Model
 	installStep  string
+
+	// Port validation
+	portWarnings []string
 }
 
 // Messages
@@ -360,6 +365,16 @@ func initialModel() model {
 		config = *existingConfig
 	}
 
+	// Check ports if running as root (like original installer)
+	var portWarnings []string
+	if os.Geteuid() == 0 {
+		for _, p := range []int{80, 443} {
+			if err := checkPortsAvailable(p); err != nil {
+				portWarnings = append(portWarnings, fmt.Sprintf("Port %d: %v", p, err))
+			}
+		}
+	}
+
 	return model{
 		currentScreen: welcomeScreen,
 		config:        config,
@@ -370,6 +385,7 @@ func initialModel() model {
 		logsViewport:  vp,
 		installLogs:   installLogs,
 		installStep:   "",
+		portWarnings:  portWarnings,
 	}
 }
 
@@ -656,8 +672,9 @@ func (m model) handleButtonPress() (model, tea.Cmd) {
 		return m.nextScreen()
 
 	case installContainersScreen:
-		// Choice stored in m.lastChoice for navigation
-		return m.nextScreen()
+		// Store the choice and create config files
+		// This happens regardless of container choice
+		return m.createConfigFilesAndProceed()
 
 	case crowdsecScreen:
 		m.config.DoCrowdsecInstall = (m.focusIndex == 0) // Yes = 0, No = 1
@@ -667,6 +684,9 @@ func (m model) handleButtonPress() (model, tea.Cmd) {
 		// If they choose No to manage CrowdSec, disable it
 		if m.focusIndex == 1 { // No = 1
 			m.config.DoCrowdsecInstall = false
+		} else {
+			// Yes = 0, they want to manage CrowdSec
+			m.config.DoCrowdsecInstall = true
 		}
 		return m.nextScreen()
 
@@ -763,8 +783,36 @@ func (m model) nextScreen() (model, tea.Cmd) {
 	if nextScreen == installScreen {
 		return m.startInstallation()
 	}
+	if nextScreen == crowdsecInstallScreen {
+		return m.startCrowdsecInstallation()
+	}
 	if nextScreen == completeScreen && m.currentScreen == completeScreen {
 		return m, tea.Quit
+	}
+
+	// Handle transition TO installContainersScreen
+	if nextScreen == installContainersScreen {
+		// Just show the screen, don't start config creation yet
+		m.currentScreen = nextScreen
+		return m.initScreen(), nil
+	}
+
+	// Handle config creation when transitioning from installContainersScreen
+	// This should only happen when the user has made a choice, not when first showing the screen
+
+	// Handle config creation completion
+	if m.currentScreen == installContainersScreen && m.installing == false {
+		// Config files have been created, now route based on container choice
+		if m.lastChoice == 0 { // Yes to containers
+			return m.startInstallation()
+		} else { // No to containers - go to CrowdSec
+			if !m.config.HybridMode {
+				m.currentScreen = crowdsecScreen
+				return m.initScreen(), nil
+			}
+			m.currentScreen = setupTokenScreen
+			return m.initScreen(), nil
+		}
 	}
 
 	m = m.initScreen()
@@ -930,6 +978,10 @@ func (m model) initScreen() model {
 			m.createButtonField("No"),
 		}
 
+	case crowdsecInstallScreen:
+		// No fields needed - this will be automatic installation
+		// The installation will be started in the Update function when this screen is reached
+
 	case setupTokenScreen:
 		// No fields needed - this will be automatic
 	}
@@ -966,6 +1018,33 @@ func (m model) startInstallation() (model, tea.Cmd) {
 	)
 }
 
+func (m model) startCrowdsecInstallation() (model, tea.Cmd) {
+	m.installing = true
+
+	return m, tea.Batch(
+		m.spinner.Tick,
+		m.performCrowdsecInstallationAsync(),
+	)
+}
+
+func (m model) createConfigFilesOnly() (model, tea.Cmd) {
+	m.installing = true
+
+	return m, tea.Batch(
+		m.spinner.Tick,
+		m.performConfigCreationAsync(),
+	)
+}
+
+func (m model) createConfigFilesAndProceed() (model, tea.Cmd) {
+	m.installing = true
+
+	return m, tea.Batch(
+		m.spinner.Tick,
+		m.performConfigCreationAndProceedAsync(),
+	)
+}
+
 func (m model) performInstallationAsync() tea.Cmd {
 	return tea.Sequence(
 		// Step 1: Load configuration
@@ -984,7 +1063,7 @@ func (m model) performInstallationAsync() tea.Cmd {
 			return installLogMsg{log: "✓ Configuration files created"}
 		},
 
-		// Step 4: Test container runtime
+		// Step 4: Test container runtime and install Docker if needed
 		func() tea.Msg {
 			if m.config.InstallationContainerType == Podman {
 				cmd := exec.Command("podman-compose", "--version")
@@ -1008,6 +1087,44 @@ func (m model) performInstallationAsync() tea.Cmd {
 				}
 				return installLogMsg{log: fmt.Sprintf("✓ docker compose available: %s", strings.TrimSpace(string(output)))}
 			}
+		},
+		// Step 4.5: Install Docker if needed (Linux only)
+		func() tea.Msg {
+			if m.config.InstallationContainerType == Docker && !isDockerInstalled() && runtime.GOOS == "linux" {
+				return installLogMsg{log: "🐳 Docker not installed, installing Docker..."}
+			}
+			return installLogMsg{log: "✓ Container runtime ready"}
+		},
+		func() tea.Msg {
+			if m.config.InstallationContainerType == Docker && !isDockerInstalled() && runtime.GOOS == "linux" {
+				installDocker()
+				// Try to start docker service
+				if err := startDockerService(); err != nil {
+					return installLogMsg{log: fmt.Sprintf("⚠️ Docker service start error: %v", err)}
+				}
+				return installLogMsg{log: "✓ Docker service started"}
+			}
+			return installLogMsg{log: "✓ Container runtime ready"}
+		},
+		func() tea.Msg {
+			if m.config.InstallationContainerType == Docker && !isDockerInstalled() && runtime.GOOS == "linux" {
+				// Wait for Docker to start
+				return installLogMsg{log: "⏳ Waiting for Docker to start..."}
+			}
+			return installLogMsg{log: "✓ Container runtime ready"}
+		},
+		func() tea.Msg {
+			if m.config.InstallationContainerType == Docker && !isDockerInstalled() && runtime.GOOS == "linux" {
+				// Check if Docker is running
+				for i := 0; i < 5; i++ {
+					if isDockerRunning() {
+						return installLogMsg{log: "✓ Docker is running!"}
+					}
+					time.Sleep(2 * time.Second)
+				}
+				return installLogMsg{log: "⚠️ Docker may not be running yet"}
+			}
+			return installLogMsg{log: "✓ Container runtime ready"}
 		},
 
 		// Step 5: Check docker-compose.yml
@@ -1088,7 +1205,7 @@ func (m model) performInstallationAsync() tea.Cmd {
 			}
 		},
 
-		// Step 8: Complete
+		// Step 8: Complete initial installation
 		func() tea.Msg {
 			return installLogMsg{log: "🎉 Installation process completed!"}
 		},
@@ -1104,6 +1221,116 @@ func (m model) performInstallationAsync() tea.Cmd {
 		func() tea.Msg {
 			return installLogMsg{log: "✨ Press Ctrl+C to exit when you're ready."}
 		},
+	)
+}
+
+func (m model) performConfigCreationAsync() tea.Cmd {
+	return tea.Sequence(
+		// Step 1: Load configuration
+		func() tea.Msg {
+			loadVersions(&m.config)
+			m.config.Secret = generateRandomSecretKey()
+			return installLogMsg{log: "✓ Configuration loaded and secret generated"}
+		},
+
+		// Step 2: Create config files
+		func() tea.Msg {
+			if err := createConfigFiles(m.config); err != nil {
+				return installLogMsg{log: fmt.Sprintf("❌ Config error: %v", err)}
+			}
+			moveFile("config/docker-compose.yml", "docker-compose.yml")
+			return installLogMsg{log: "✓ Configuration files created"}
+		},
+
+		// Step 3: Complete
+		func() tea.Msg {
+			return installLogMsg{log: "🎉 Configuration files created successfully!"}
+		},
+		func() tea.Msg {
+			return installLogMsg{log: ""}
+		},
+		func() tea.Msg {
+			return installLogMsg{log: "📋 You can now install containers manually or proceed to CrowdSec setup."}
+		},
+		func() tea.Msg {
+			return installLogMsg{log: "✨ Press Ctrl+C to exit when you're ready."}
+		},
+		func() tea.Msg {
+			return installCompleteMsg{}
+		},
+	)
+}
+
+func (m model) performConfigCreationAndProceedAsync() tea.Cmd {
+	return tea.Sequence(
+		// Step 1: Load configuration
+		func() tea.Msg {
+			loadVersions(&m.config)
+			m.config.Secret = generateRandomSecretKey()
+			return installLogMsg{log: "✓ Configuration loaded and secret generated"}
+		},
+
+		// Step 2: Create config files
+		func() tea.Msg {
+			if err := createConfigFiles(m.config); err != nil {
+				return installLogMsg{log: fmt.Sprintf("❌ Config error: %v", err)}
+			}
+			moveFile("config/docker-compose.yml", "docker-compose.yml")
+			return installLogMsg{log: "✓ Configuration files created"}
+		},
+
+		// Step 3: Check if containers should be installed
+		func() tea.Msg {
+			if m.lastChoice == 0 { // Yes to containers
+				return installLogMsg{log: "🚀 Proceeding with container installation..."}
+			} else {
+				return installLogMsg{log: "⏭️ Skipping container installation, proceeding to CrowdSec setup..."}
+			}
+		},
+		func() tea.Msg {
+			return installCompleteMsg{}
+		},
+	)
+}
+
+func (m model) performCrowdsecInstallationAsync() tea.Cmd {
+	return tea.Sequence(
+		// Step 1: Stop existing containers
+		func() tea.Msg { return installLogMsg{log: "🛑 Stopping existing containers..."} },
+		func() tea.Msg {
+			if err := stopContainers(m.config.InstallationContainerType); err != nil {
+				return installLogMsg{log: fmt.Sprintf("❌ Failed to stop containers: %v", err)}
+			}
+			return installLogMsg{log: "✓ Containers stopped successfully"}
+		},
+
+		// Step 2: Backup config
+		func() tea.Msg { return installLogMsg{log: "💾 Backing up configuration..."} },
+		func() tea.Msg {
+			if err := backupConfig(); err != nil {
+				return installLogMsg{log: fmt.Sprintf("❌ Backup failed: %v", err)}
+			}
+			return installLogMsg{log: "✓ Configuration backed up"}
+		},
+
+		// Step 3: Install CrowdSec
+		func() tea.Msg { return installLogMsg{log: "🛡️ Installing CrowdSec security solution..."} },
+		func() tea.Msg {
+			if err := installCrowdsec(m.config); err != nil {
+				return installLogMsg{log: fmt.Sprintf("❌ CrowdSec installation failed: %v", err)}
+			}
+			return installLogMsg{log: "✅ CrowdSec installed successfully!"}
+		},
+
+		// Step 4: Complete
+		func() tea.Msg { return installLogMsg{log: "🎉 CrowdSec installation completed!"} },
+		func() tea.Msg { return installLogMsg{log: ""} },
+		func() tea.Msg { return installLogMsg{log: "📋 Review the logs above for any errors or warnings."} },
+		func() tea.Msg {
+			return installLogMsg{log: "🔍 Use ↑↓ arrows to scroll through the installation output."}
+		},
+		func() tea.Msg { return installLogMsg{log: "✨ Press Ctrl+C to exit when you're ready."} },
+		func() tea.Msg { return installCompleteMsg{} },
 	)
 }
 
@@ -1161,6 +1388,8 @@ func (m model) View() string {
 		content = m.crowdsecView()
 	case crowdsecManageScreen:
 		content = m.crowdsecManageView()
+	case crowdsecInstallScreen:
+		content = m.crowdsecInstallView()
 	case setupTokenScreen:
 		content = m.setupTokenView()
 	case completeScreen:
@@ -1205,6 +1434,15 @@ Prerequisites:
 • Point your domain to this server's IP
 
 Press Enter to continue...`
+	}
+
+	// Add port warnings if any
+	if len(m.portWarnings) > 0 {
+		welcomeText += "\n\n⚠️  Port Warnings:\n"
+		for _, warning := range m.portWarnings {
+			welcomeText += "• " + warning + "\n"
+		}
+		welcomeText += "\nPlease close any services on ports 80/443 before proceeding."
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Center,
@@ -1508,6 +1746,78 @@ CrowdSec will add complexity to your installation and requires:
 Consult the CrowdSec documentation for detailed setup instructions.`
 
 	content += "\n\n" + m.renderButtons()
+
+	return lipgloss.JoinVertical(lipgloss.Center,
+		title,
+		boxStyle.Render(content),
+	)
+}
+
+func (m model) crowdsecInstallView() string {
+	title := titleStyle.Render("🛡️ Installing CrowdSec")
+
+	var content string
+
+	if m.installing {
+		// Show current step with animation
+		step := m.installStep
+		if step == "" {
+			step = "Preparing CrowdSec installation"
+		}
+
+		content = fmt.Sprintf("%s %s", m.spinner.View(), step)
+
+		// Show logs viewport during installation
+		logsTitle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(primaryOrange)).
+			Bold(true).
+			Render("📋 CrowdSec Installation Logs")
+
+		logsBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(primaryOrange)).
+			Padding(0, 1).
+			Width(74).
+			Height(14)
+
+		m.logsViewport.Width = 72
+		m.logsViewport.Height = 12
+
+		// Update viewport content with current logs
+		if len(m.installLogs) > 0 {
+			m.logsViewport.SetContent(strings.Join(m.installLogs, "\n"))
+		}
+
+		content += "\n\n" + logsTitle + "\n" + logsBox.Render(m.logsViewport.View())
+		content += "\n" + infoStyle.Render("Use ↑↓ to scroll through logs")
+	} else {
+		// Installation complete - show logs for review
+		content = "✅ CrowdSec Installation Complete - Review Output"
+
+		// Show logs viewport for review
+		logsTitle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(primaryOrange)).
+			Bold(true).
+			Render("📋 Installation Results")
+
+		logsBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(primaryOrange)).
+			Padding(0, 1).
+			Width(74).
+			Height(14)
+
+		m.logsViewport.Width = 72
+		m.logsViewport.Height = 12
+
+		// Update viewport content with current logs
+		if len(m.installLogs) > 0 {
+			m.logsViewport.SetContent(strings.Join(m.installLogs, "\n"))
+		}
+
+		content += "\n\n" + logsTitle + "\n" + logsBox.Render(m.logsViewport.View())
+		content += "\n" + infoStyle.Render("Use ↑↓ to scroll • Press Ctrl+C to exit")
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Center,
 		title,
