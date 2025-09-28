@@ -48,9 +48,9 @@ type Config struct {
 	TraefikBouncerKey         string
 	DoCrowdsecInstall         bool
 	Secret                    string
-	HybridMode				  bool
-	HybridId				  string
-	HybridSecret			  string
+	HybridMode                bool
+	HybridId                  string
+	HybridSecret              string
 }
 
 type SupportedContainer string
@@ -61,7 +61,26 @@ const (
 )
 
 func main() {
+	// Check if we should use TUI mode
+	useTUI := true
+	if len(os.Args) > 1 && os.Args[1] == "--no-tui" {
+		useTUI = false
+	}
 
+	if useTUI {
+		// Run TUI installer
+		if err := runTUIInstaller(); err != nil {
+			fmt.Printf("TUI installer error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Fallback to original installer
+	runOriginalInstaller()
+}
+
+func runOriginalInstaller() {
 	// print a banner about prerequisites - opening port 80, 443, 51820, and 21820 on the VPS and firewall and pointing your domain to the VPS IP with a records. Docs are at http://localhost:3000/Getting%20Started/dns-networking
 
 	fmt.Println("Welcome to the Pangolin installer!")
@@ -205,17 +224,17 @@ func main() {
 					}
 				}
 
-                config.InstallationContainerType = podmanOrDocker(reader)
+				config.InstallationContainerType = podmanOrDocker(reader)
 
 				config.DoCrowdsecInstall = true
-                err := installCrowdsec(config)
-                if (err != nil) {
-                    fmt.Printf("Error installing CrowdSec: %v\n", err)
-                    return
-                }
+				err := installCrowdsec(config)
+				if err != nil {
+					fmt.Printf("Error installing CrowdSec: %v\n", err)
+					return
+				}
 
-                fmt.Println("CrowdSec installed successfully!")
-                return
+				fmt.Println("CrowdSec installed successfully!")
+				return
 			}
 		}
 	}
@@ -537,12 +556,12 @@ func printSetupToken(containerType SupportedContainer, dashboardDomain string) {
 					tokenStart := strings.Index(trimmedLine, "Token:")
 					if tokenStart != -1 {
 						token := strings.TrimSpace(trimmedLine[tokenStart+6:])
-						       fmt.Printf("Setup token: %s\n", token)
-                               fmt.Println("")
-                               fmt.Println("This token is required to register the first admin account in the web UI at:")
-                               fmt.Printf("https://%s/auth/initial-setup\n", dashboardDomain)
-                               fmt.Println("")
-                               fmt.Println("Save this token securely. It will be invalid after the first admin is created.")
+						fmt.Printf("Setup token: %s\n", token)
+						fmt.Println("")
+						fmt.Println("This token is required to register the first admin account in the web UI at:")
+						fmt.Printf("https://%s/auth/initial-setup\n", dashboardDomain)
+						fmt.Println("")
+						fmt.Println("Save this token securely. It will be invalid after the first admin is created.")
 						return
 					}
 				}
@@ -634,21 +653,21 @@ func run(name string, args ...string) error {
 }
 
 func checkPortsAvailable(port int) error {
-    addr := fmt.Sprintf(":%d", port)
-    ln, err := net.Listen("tcp", addr)
-    if err != nil {
-        return fmt.Errorf(
-            "ERROR: port %d is occupied or cannot be bound: %w\n\n",
-            port, err,
-        )
-    }
-    if closeErr := ln.Close(); closeErr != nil {
-        fmt.Fprintf(os.Stderr,
-            "WARNING: failed to close test listener on port %d: %v\n",
-            port, closeErr,
-        )
-    }
-    return nil
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf(
+			"ERROR: port %d is occupied or cannot be bound: %w\n\n",
+			port, err,
+		)
+	}
+	if closeErr := ln.Close(); closeErr != nil {
+		fmt.Fprintf(os.Stderr,
+			"WARNING: failed to close test listener on port %d: %v\n",
+			port, closeErr,
+		)
+	}
+	return nil
 }
 
 func checkIsPangolinInstalledWithHybrid() bool {
