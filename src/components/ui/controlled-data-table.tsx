@@ -37,7 +37,7 @@ import {
 } from "@app/hooks/useStoredPageSize";
 import { Columns, Filter, Plus, RefreshCw, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Extended ColumnDef type that includes optional friendlyName for column visibility dropdown
 export type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<
