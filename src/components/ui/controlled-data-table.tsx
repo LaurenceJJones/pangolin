@@ -31,9 +31,13 @@ import {
 import { Input } from "@app/components/ui/input";
 import { useStoredColumnVisibility } from "@app/hooks/useStoredColumnVisibility";
 
+import {
+    getStoredPageSize,
+    setStoredPageSize
+} from "@app/hooks/useStoredPageSize";
 import { Columns, Filter, Plus, RefreshCw, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Extended ColumnDef type that includes optional friendlyName for column visibility dropdown
 export type ExtendedColumnDef<TData, TValue = unknown> = ColumnDef<
@@ -82,6 +86,7 @@ type ControlledDataTableProps<TData, TValue> = {
     stickyRightColumn?: string; // Column ID or accessorKey for right sticky column (typically "actions")
     rowCount: number;
     pagination: PaginationState;
+    persistPageSize?: boolean; // Whether to persist pageSize to localStorage (default: true)
 };
 
 export function ControlledDataTable<TData, TValue>({
@@ -104,7 +109,8 @@ export function ControlledDataTable<TData, TValue>({
     onPaginationChange,
     stickyRightColumn,
     rowCount,
-    isNavigatingToAddPage
+    isNavigatingToAddPage,
+    persistPageSize = true
 }: ControlledDataTableProps<TData, TValue>) {
     const t = useTranslations();
 
@@ -114,6 +120,32 @@ export function ControlledDataTable<TData, TValue>({
         tableId,
         defaultColumnVisibility
     );
+
+    // Track if we've applied the stored page size on mount
+    const hasAppliedStoredPageSize = useRef(false);
+
+    // On mount, check if there's a stored pageSize and apply it
+    useEffect(() => {
+        if (persistPageSize && !hasAppliedStoredPageSize.current) {
+            hasAppliedStoredPageSize.current = true;
+            const storedPageSize = getStoredPageSize(tableId);
+            if (storedPageSize !== pagination.pageSize) {
+                // Navigate to apply the stored pageSize
+                onPaginationChange({
+                    ...pagination,
+                    pageIndex: 0, // Reset to first page when changing pageSize
+                    pageSize: storedPageSize
+                });
+            }
+        }
+    }, [persistPageSize, tableId]); // Only run on mount
+
+    // Save pageSize to localStorage when it changes
+    useEffect(() => {
+        if (persistPageSize && hasAppliedStoredPageSize.current) {
+            setStoredPageSize(pagination.pageSize, tableId);
+        }
+    }, [pagination.pageSize, persistPageSize, tableId]);
 
     // TODO: filters
     const activeFilters = useMemo(() => {

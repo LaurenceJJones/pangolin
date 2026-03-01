@@ -3,12 +3,12 @@ import { useCallback, useState } from "react";
 
 const STORAGE_KEYS = {
     COLUMN_VISIBILITY: "datatable-column-visibility",
-    getTableColumnVisibility: (tableId: string) =>
-        `datatable-${tableId}-column-visibility`
+    getTableColumnVisibility: (tableId?: string) =>
+        tableId ? `datatable-${tableId}-column-visibility` : STORAGE_KEYS.COLUMN_VISIBILITY
 };
 
-const getStoredColumnVisibility = (
-    tableId: string,
+export const getStoredColumnVisibility = (
+    tableId?: string,
     defaultVisibility?: Record<string, boolean>
 ): Record<string, boolean> => {
     if (typeof window === "undefined") return defaultVisibility || {};
@@ -32,9 +32,9 @@ const getStoredColumnVisibility = (
     return defaultVisibility || {};
 };
 
-const setStoredColumnVisibility = (
+export const setStoredColumnVisibility = (
     visibility: Record<string, boolean>,
-    tableId: string
+    tableId?: string
 ): void => {
     if (typeof window === "undefined") return;
 

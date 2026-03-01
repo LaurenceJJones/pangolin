@@ -2,10 +2,14 @@ import { useState, useCallback } from "react";
 
 const STORAGE_KEYS = {
     PAGE_SIZE: "datatable-page-size",
-    getTablePageSize: (tableId: string) => `datatable-${tableId}-page-size`
+    getTablePageSize: (tableId?: string) =>
+        tableId ? `datatable-${tableId}-page-size` : STORAGE_KEYS.PAGE_SIZE
 };
 
-const getStoredPageSize = (tableId: string, defaultSize = 20): number => {
+export const getStoredPageSize = (
+    tableId?: string,
+    defaultSize = 20
+): number => {
     if (typeof window === "undefined") return defaultSize;
 
     try {
@@ -23,7 +27,7 @@ const getStoredPageSize = (tableId: string, defaultSize = 20): number => {
     return defaultSize;
 };
 
-const setStoredPageSize = (pageSize: number, tableId: string): void => {
+export const setStoredPageSize = (pageSize: number, tableId?: string): void => {
     if (typeof window === "undefined") return;
 
     try {
@@ -34,8 +38,11 @@ const setStoredPageSize = (pageSize: number, tableId: string): void => {
     }
 };
 
-// export function useStore
-export function useStoredPageSize(tableId: string, defaultPageSize?: number) {
+/**
+ * Hook for managing page size with localStorage persistence.
+ * Use this for components that manage pagination state internally (like DataTable).
+ */
+export function useStoredPageSize(tableId: string, defaultPageSize = 20) {
     const [pageSize, setSize] = useState(() =>
         getStoredPageSize(tableId, defaultPageSize)
     );

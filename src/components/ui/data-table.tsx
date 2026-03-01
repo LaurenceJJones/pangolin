@@ -50,89 +50,14 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger
 } from "@app/components/ui/dropdown-menu";
-
-const STORAGE_KEYS = {
-    PAGE_SIZE: "datatable-page-size",
-    COLUMN_VISIBILITY: "datatable-column-visibility",
-    getTablePageSize: (tableId?: string) =>
-        tableId ? `${tableId}-size` : STORAGE_KEYS.PAGE_SIZE,
-    getTableColumnVisibility: (tableId?: string) =>
-        tableId
-            ? `${tableId}-column-visibility`
-            : STORAGE_KEYS.COLUMN_VISIBILITY
-};
-
-const getStoredPageSize = (tableId?: string, defaultSize = 20): number => {
-    if (typeof window === "undefined") return defaultSize;
-
-    try {
-        const key = STORAGE_KEYS.getTablePageSize(tableId);
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            const parsed = parseInt(stored, 10);
-            // Validate that it's a reasonable page size
-            if (parsed > 0 && parsed <= 1000) {
-                return parsed;
-            }
-        }
-    } catch (error) {
-        console.warn("Failed to read page size from localStorage:", error);
-    }
-    return defaultSize;
-};
-
-const setStoredPageSize = (pageSize: number, tableId?: string): void => {
-    if (typeof window === "undefined") return;
-
-    try {
-        const key = STORAGE_KEYS.getTablePageSize(tableId);
-        localStorage.setItem(key, pageSize.toString());
-    } catch (error) {
-        console.warn("Failed to save page size to localStorage:", error);
-    }
-};
-
-const getStoredColumnVisibility = (
-    tableId?: string,
-    defaultVisibility?: Record<string, boolean>
-): Record<string, boolean> => {
-    if (typeof window === "undefined") return defaultVisibility || {};
-
-    try {
-        const key = STORAGE_KEYS.getTableColumnVisibility(tableId);
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            const parsed = JSON.parse(stored);
-            // Validate that it's an object
-            if (typeof parsed === "object" && parsed !== null) {
-                return parsed;
-            }
-        }
-    } catch (error) {
-        console.warn(
-            "Failed to read column visibility from localStorage:",
-            error
-        );
-    }
-    return defaultVisibility || {};
-};
-
-const setStoredColumnVisibility = (
-    visibility: Record<string, boolean>,
-    tableId?: string
-): void => {
-    if (typeof window === "undefined") return;
-
-    try {
-        const key = STORAGE_KEYS.getTableColumnVisibility(tableId);
-        localStorage.setItem(key, JSON.stringify(visibility));
-    } catch (error) {
-        console.warn(
-            "Failed to save column visibility to localStorage:",
-            error
-        );
-    }
-};
+import {
+    getStoredPageSize,
+    setStoredPageSize
+} from "@app/hooks/useStoredPageSize";
+import {
+    getStoredColumnVisibility,
+    setStoredColumnVisibility
+} from "@app/hooks/useStoredColumnVisibility";
 
 type TabFilter = {
     id: string;
