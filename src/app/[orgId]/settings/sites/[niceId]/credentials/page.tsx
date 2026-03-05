@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
     SettingsContainer,
     SettingsSection,
@@ -61,34 +61,9 @@ export default function CredentialsPage() {
     );
     const [showCredentialsAlert, setShowCredentialsAlert] = useState(false);
     const [showWireGuardAlert, setShowWireGuardAlert] = useState(false);
-    const [loadingDefaults, setLoadingDefaults] = useState(false);
     const [shouldDisconnect, setShouldDisconnect] = useState(true);
 
     const { isPaidUser } = usePaidStatus();
-
-    // Fetch site defaults for wireguard sites to show in obfuscated config
-    useEffect(() => {
-        const fetchSiteDefaults = async () => {
-            if (site?.type === "wireguard" && !siteDefaults && orgId) {
-                setLoadingDefaults(true);
-                try {
-                    const res = await api.get(
-                        `/org/${orgId}/pick-site-defaults`
-                    );
-                    if (res && res.status === 200) {
-                        setSiteDefaults(res.data.data);
-                    }
-                } catch (error) {
-                    // Silently fail - we'll use site data or obfuscated values
-                } finally {
-                    setLoadingDefaults(false);
-                }
-            } else {
-                setLoadingDefaults(false);
-            }
-        };
-        fetchSiteDefaults();
-    }, []);
 
     const handleConfirmRegenerate = async () => {
         try {
@@ -319,71 +294,47 @@ export default function CredentialsPage() {
                         />
 
                         <SettingsSectionBody>
-                            {!loadingDefaults && (
-                                <>
-                                    {wgConfig ? (
-                                        <div className="flex flex-col sm:flex-row items-center gap-4">
-                                            <CopyTextBox
-                                                text={wgConfig}
-                                                outline={true}
+                            {wgConfig ? (
+                                <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <CopyTextBox
+                                        text={wgConfig}
+                                        outline={true}
+                                    />
+                                    <div className="relative w-fit border rounded-md">
+                                        <div className="bg-white p-6 rounded-md">
+                                            <QRCodeCanvas
+                                                value={wgConfig}
+                                                size={168}
+                                                className="mx-auto"
                                             />
-                                            <div className="relative w-fit border rounded-md">
-                                                <div className="bg-white p-6 rounded-md">
-                                                    <QRCodeCanvas
-                                                        value={wgConfig}
-                                                        size={168}
-                                                        className="mx-auto"
-                                                    />
-                                                </div>
-                                            </div>
                                         </div>
-                                    ) : (
-                                        <CopyTextBox
-                                            text={generateObfuscatedWireGuardConfig(
-                                                {
-                                                    subnet:
-                                                        siteDefaults?.subnet ||
-                                                        site?.subnet ||
-                                                        null,
-                                                    address:
-                                                        siteDefaults?.address ||
-                                                        site?.address ||
-                                                        null,
-                                                    endpoint:
-                                                        siteDefaults?.endpoint ||
-                                                        site?.endpoint ||
-                                                        null,
-                                                    listenPort:
-                                                        siteDefaults?.listenPort ||
-                                                        site?.listenPort ||
-                                                        null,
-                                                    publicKey:
-                                                        siteDefaults?.publicKey ||
-                                                        site?.publicKey ||
-                                                        site?.pubKey ||
-                                                        null
-                                                }
-                                            )}
-                                            outline={true}
-                                        />
-                                    )}
-                                    {showWireGuardAlert && wgConfig && (
-                                        <Alert
-                                            variant="neutral"
-                                            className="mt-4"
-                                        >
-                                            <InfoIcon className="h-4 w-4" />
-                                            <AlertTitle className="font-semibold">
-                                                {t("siteCredentialsSave")}
-                                            </AlertTitle>
-                                            <AlertDescription>
-                                                {t(
-                                                    "siteCredentialsSaveDescription"
-                                                )}
-                                            </AlertDescription>
-                                        </Alert>
-                                    )}
-                                </>
+                                    </div>
+                                </div>
+                            ) : (
+                                <CopyTextBox
+                                    text={generateObfuscatedWireGuardConfig({
+                                        subnet: site?.subnet || null,
+                                        address: site?.address || null,
+                                        endpoint: site?.endpoint || null,
+                                        listenPort: site?.listenPort || null,
+                                        publicKey:
+                                            site?.publicKey ||
+                                            site?.pubKey ||
+                                            null
+                                    })}
+                                    outline={true}
+                                />
+                            )}
+                            {showWireGuardAlert && wgConfig && (
+                                <Alert variant="neutral" className="mt-4">
+                                    <InfoIcon className="h-4 w-4" />
+                                    <AlertTitle className="font-semibold">
+                                        {t("siteCredentialsSave")}
+                                    </AlertTitle>
+                                    <AlertDescription>
+                                        {t("siteCredentialsSaveDescription")}
+                                    </AlertDescription>
+                                </Alert>
                             )}
                         </SettingsSectionBody>
                         {!env.flags.disableEnterpriseFeatures && (
