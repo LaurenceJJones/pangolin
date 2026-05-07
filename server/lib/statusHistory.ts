@@ -28,7 +28,7 @@ export async function getCachedStatusHistory(
     const utcToday = new Date();
     utcToday.setUTCHours(0, 0, 0, 0);
     const todayMidnightSec = Math.floor(utcToday.getTime() / 1000);
-    const startSec = todayMidnightSec - days * 86400;
+    const startSec = todayMidnightSec - (days - 1) * 86400;
 
     const events = await logsDb
         .select()
@@ -124,7 +124,7 @@ export function computeBuckets(
     let totalDowntime = 0;
 
     for (let d = 0; d < days; d++) {
-        const dayStartSec = todayMidnightSec - (days - d) * 86400;
+        const dayStartSec = todayMidnightSec - (days - 1 - d) * 86400;
         const dayEndSec = dayStartSec + 86400;
 
         const dayEvents = events.filter(
