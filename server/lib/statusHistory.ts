@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db, logsDb, statusHistory } from "@server/db";
-import { and, eq, gte, asc } from "drizzle-orm";
+import { and, eq, gte, lt, asc, desc } from "drizzle-orm";
 import cache from "@server/lib/cache";
 
 const STATUS_HISTORY_CACHE_TTL = 60; // seconds
@@ -27,10 +27,24 @@ export async function getCachedStatusHistory(
     // Anchor to UTC midnight so the query window aligns with stable calendar days
     const utcToday = new Date();
     utcToday.setUTCHours(0, 0, 0, 0);
+    const nowSec = Math.floor(Date.now() / 1000);
     const todayMidnightSec = Math.floor(utcToday.getTime() / 1000);
-    const startSec = todayMidnightSec - days * 86400;
+    const startSec = todayMidnightSec - (days - 1) * 86400;
 
-    const events = await logsDb
+    const previousEvents = await logsDb
+        .select()
+        .from(statusHistory)
+        .where(
+            and(
+                eq(statusHistory.entityType, entityType),
+                eq(statusHistory.entityId, entityId),
+                lt(statusHistory.timestamp, startSec)
+            )
+        )
+        .orderBy(desc(statusHistory.timestamp))
+        .limit(1);
+
+    const windowEvents = await logsDb
         .select()
         .from(statusHistory)
         .where(
@@ -42,8 +56,9 @@ export async function getCachedStatusHistory(
         )
         .orderBy(asc(statusHistory.timestamp));
 
+    const events = [...previousEvents.reverse(), ...windowEvents];
     const { buckets, totalDowntime } = computeBuckets(events, days);
-    const totalWindow = days * 86400;
+    const totalWindow = Math.max(0, nowSec - startSec);
     const overallUptime =
         totalWindow > 0
             ? Math.max(0, ((totalWindow - totalDowntime) / totalWindow) * 100)
@@ -124,7 +139,7 @@ export function computeBuckets(
     let totalDowntime = 0;
 
     for (let d = 0; d < days; d++) {
-        const dayStartSec = todayMidnightSec - (days - d) * 86400;
+        const dayStartSec = todayMidnightSec - (days - 1 - d) * 86400;
         const dayEndSec = dayStartSec + 86400;
 
         const dayEvents = events.filter(
