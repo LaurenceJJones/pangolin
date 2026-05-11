@@ -169,8 +169,8 @@ func ReadPangolinGerbilBaseEndpoint(configPath string) (string, error) {
 	return strings.TrimSpace(doc.Gerbil.BaseEndpoint), nil
 }
 
-// PatchPangolinConfigForCloudflare sets gerbil.base_endpoint to the VPS public IP and
-// server.trust_proxy to 2 per https://docs.pangolin.net/self-host/advanced/cloudflare-proxy
+// PatchPangolinConfigForCloudflare sets gerbil.base_endpoint to the VPS public IP
+// per https://docs.pangolin.net/self-host/advanced/cloudflare-proxy (WireGuard).
 func PatchPangolinConfigForCloudflare(configPath, gerbilBaseEndpoint string) error {
 	if gerbilBaseEndpoint == "" {
 		return fmt.Errorf("gerbil base endpoint is empty")
@@ -190,13 +190,6 @@ func PatchPangolinConfigForCloudflare(configPath, gerbilBaseEndpoint string) err
 		root["gerbil"] = gerbil
 	}
 	gerbil["base_endpoint"] = gerbilBaseEndpoint
-
-	server, ok := root["server"].(map[string]any)
-	if !ok || server == nil {
-		server = make(map[string]any)
-		root["server"] = server
-	}
-	server["trust_proxy"] = 2
 
 	out, err := MarshalYAMLWithIndent(root, 2)
 	if err != nil {

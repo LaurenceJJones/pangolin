@@ -112,7 +112,7 @@ func installCrowdsec(config Config, installDir string) error {
 		if err := PatchPangolinConfigForCloudflare("config/config.yml", config.GerbilBaseEndpoint); err != nil {
 			return fmt.Errorf("update config.yml for Cloudflare proxy: %w", err)
 		}
-		fmt.Println("Updated config/config.yml (gerbil.base_endpoint, server.trust_proxy) for Cloudflare proxy.")
+		fmt.Println("Updated config/config.yml (gerbil.base_endpoint) for Cloudflare proxy.")
 		if err := restartContainer("pangolin", config.InstallationContainerType); err != nil {
 			return fmt.Errorf("restart pangolin after Cloudflare config update: %w", err)
 		}
