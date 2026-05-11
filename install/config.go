@@ -150,6 +150,64 @@ func ReadAppConfig(configPath string) (*AppConfigValues, error) {
 	return values, nil
 }
 
+type pangolinGerbilYAML struct {
+	Gerbil struct {
+		BaseEndpoint string `yaml:"base_endpoint"`
+	} `yaml:"gerbil"`
+}
+
+// ReadPangolinGerbilBaseEndpoint returns gerbil.base_endpoint from Pangolin config.yml if set.
+func ReadPangolinGerbilBaseEndpoint(configPath string) (string, error) {
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", err
+	}
+	var doc pangolinGerbilYAML
+	if err := yaml.Unmarshal(configData, &doc); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(doc.Gerbil.BaseEndpoint), nil
+}
+
+// PatchPangolinConfigForCloudflare sets gerbil.base_endpoint to the VPS public IP and
+// server.trust_proxy to 2 per https://docs.pangolin.net/self-host/advanced/cloudflare-proxy
+func PatchPangolinConfigForCloudflare(configPath, gerbilBaseEndpoint string) error {
+	if gerbilBaseEndpoint == "" {
+		return fmt.Errorf("gerbil base endpoint is empty")
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("parse config.yml: %w", err)
+	}
+
+	gerbil, ok := root["gerbil"].(map[string]any)
+	if !ok || gerbil == nil {
+		gerbil = make(map[string]any)
+		root["gerbil"] = gerbil
+	}
+	gerbil["base_endpoint"] = gerbilBaseEndpoint
+
+	server, ok := root["server"].(map[string]any)
+	if !ok || server == nil {
+		server = make(map[string]any)
+		root["server"] = server
+	}
+	server["trust_proxy"] = 2
+
+	out, err := MarshalYAMLWithIndent(root, 2)
+	if err != nil {
+		return fmt.Errorf("marshal config.yml: %w", err)
+	}
+	if err := os.WriteFile(configPath, out, 0644); err != nil {
+		return fmt.Errorf("write config.yml: %w", err)
+	}
+	return nil
+}
+
 func copyDockerService(sourceFile, destFile, serviceName string) error {
 	// Read source file
 	sourceData, err := os.ReadFile(sourceFile)

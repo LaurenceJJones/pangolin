@@ -60,6 +60,9 @@ type Config struct {
 	// forwardedHeadersTrustedIPs using Cloudflare's published edge IP ranges.
 	UseCloudflareProxy   bool
 	CloudflareTrustedIPs []string
+	// GerbilBaseEndpoint is written to gerbil.base_endpoint (dashboard hostname, or
+	// public VPS IP when UseCloudflareProxy — see Cloudflare self-host docs).
+	GerbilBaseEndpoint string
 }
 
 type SupportedContainer string
@@ -241,6 +244,9 @@ func main() {
 					config.BadgerVersion = traefikConfig.BadgerVersion
 					config.UseCloudflareProxy = traefikConfig.UseCloudflareProxy
 					config.CloudflareTrustedIPs = traefikConfig.CloudflareTrustedIPs
+					if ep, err := ReadPangolinGerbilBaseEndpoint("config/config.yml"); err == nil {
+						config.GerbilBaseEndpoint = ep
+					}
 
 					// print the values and check if they are right
 					fmt.Println("Detected values:")
@@ -249,6 +255,11 @@ func main() {
 					fmt.Printf("Badger Version: %s\n", config.BadgerVersion)
 					if config.UseCloudflareProxy {
 						fmt.Printf("Cloudflare proxy (forwarded headers): enabled (%d trusted CIDRs)\n", len(config.CloudflareTrustedIPs))
+						if _, ok := normalizePublicIP(config.GerbilBaseEndpoint); ok {
+							fmt.Printf("Gerbil base_endpoint (public IP): %s\n", config.GerbilBaseEndpoint)
+						} else if config.GerbilBaseEndpoint != "" {
+							fmt.Printf("Gerbil base_endpoint (current): %s (should be this server's public IP when using Cloudflare proxy)\n", config.GerbilBaseEndpoint)
+						}
 					}
 
 					if !readBool("Are these values correct?", true) {
@@ -282,6 +293,7 @@ func main() {
 					}
 				}
 
+				ensureGerbilBaseEndpointForCloudflareProxy(&config)
 				config.DoCrowdsecInstall = true
 				err := installCrowdsec(config, installDir)
 				if err != nil {
@@ -563,12 +575,45 @@ func collectUserInput() Config {
 		}
 	}
 
+	config.GerbilBaseEndpoint = strings.ToLower(strings.TrimSpace(config.DashboardDomain))
+	if config.UseCloudflareProxy {
+		fmt.Println("\nWith Cloudflare proxy, WireGuard needs your VPS public IP in gerbil.base_endpoint (not the dashboard hostname). See https://docs.pangolin.net/self-host/advanced/cloudflare-proxy")
+		raw := readString("Enter this server's public IPv4 or IPv6 address", "")
+		norm, ok := normalizePublicIP(raw)
+		if !ok {
+			fmt.Println("Error: invalid or non-public IP. Use your VPS routable address (not a private range).")
+			os.Exit(1)
+		}
+		config.GerbilBaseEndpoint = norm
+	}
+
 	if config.DashboardDomain == "" {
 		fmt.Println("Error: Dashboard Domain name is required")
 		os.Exit(1)
 	}
 
 	return config
+}
+
+// ensureGerbilBaseEndpointForCloudflareProxy prompts for the VPS public IP when
+// Cloudflare proxy is enabled but config does not yet have a usable address
+// (e.g. CrowdSec add-on on an existing install).
+func ensureGerbilBaseEndpointForCloudflareProxy(config *Config) {
+	if !config.UseCloudflareProxy {
+		return
+	}
+	if _, ok := normalizePublicIP(config.GerbilBaseEndpoint); ok {
+		return
+	}
+	fmt.Println("\nWhen Cloudflare proxy is enabled, gerbil.base_endpoint must be this server's public IP (not the dashboard hostname). See https://docs.pangolin.net/self-host/advanced/cloudflare-proxy")
+	for {
+		raw := readString("Enter this server's public IPv4 or IPv6 address", "")
+		if norm, ok := normalizePublicIP(raw); ok {
+			config.GerbilBaseEndpoint = norm
+			return
+		}
+		fmt.Println("Invalid address. Use your VPS public IP (global unicast), e.g. 203.0.113.4.")
+	}
 }
 
 func createConfigFiles(config Config) error {

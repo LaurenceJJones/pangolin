@@ -3,7 +3,7 @@
 
 gerbil:
     start_port: 51820
-    base_endpoint: "{{.DashboardDomain}}"
+    base_endpoint: "{{.GerbilBaseEndpoint}}"
 
 app:
     dashboard_url: "https://{{.DashboardDomain}}"
@@ -17,6 +17,9 @@ domains:
 
 server:
     secret: "{{.Secret}}"
+{{if .UseCloudflareProxy}}
+    trust_proxy: 2
+{{end}}
     cors:
         origins: ["https://{{.DashboardDomain}}"]
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]

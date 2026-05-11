@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -73,4 +74,21 @@ func FetchCloudflareIPRanges() ([]string, error) {
 		}
 	}
 	return nil, lastErr
+}
+
+// normalizePublicIP trims input and returns a canonical IP string if s is a
+// global unicast public address (IPv4 or IPv6), suitable for gerbil.base_endpoint.
+func normalizePublicIP(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+	s = strings.TrimSpace(s)
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return "", false
+	}
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return "", false
+	}
+	return ip.String(), true
 }
