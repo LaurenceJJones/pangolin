@@ -56,6 +56,10 @@ type Config struct {
 	EnableGeoblocking         bool
 	Secret                    string
 	IsEnterprise              bool
+	// UseCloudflareProxy enables Traefik forwardedHeaders.trustedIPs and CrowdSec
+	// forwardedHeadersTrustedIPs using Cloudflare's published edge IP ranges.
+	UseCloudflareProxy   bool
+	CloudflareTrustedIPs []string
 }
 
 type SupportedContainer string
@@ -235,12 +239,17 @@ func main() {
 					config.DashboardDomain = parsedURL.Hostname()
 					config.LetsEncryptEmail = traefikConfig.LetsEncryptEmail
 					config.BadgerVersion = traefikConfig.BadgerVersion
+					config.UseCloudflareProxy = traefikConfig.UseCloudflareProxy
+					config.CloudflareTrustedIPs = traefikConfig.CloudflareTrustedIPs
 
 					// print the values and check if they are right
 					fmt.Println("Detected values:")
 					fmt.Printf("Dashboard Domain: %s\n", config.DashboardDomain)
 					fmt.Printf("Let's Encrypt Email: %s\n", config.LetsEncryptEmail)
 					fmt.Printf("Badger Version: %s\n", config.BadgerVersion)
+					if config.UseCloudflareProxy {
+						fmt.Printf("Cloudflare proxy (forwarded headers): enabled (%d trusted CIDRs)\n", len(config.CloudflareTrustedIPs))
+					}
 
 					if !readBool("Are these values correct?", true) {
 						config = collectUserInput()
@@ -256,6 +265,21 @@ func main() {
 				} else {
 					config.InstallationContainerType = detectedType
 					fmt.Printf("Detected container type: %s\n", config.InstallationContainerType)
+				}
+
+				if !config.UseCloudflareProxy {
+					if readBool(
+						"Will visitors reach this server through Cloudflare DNS with proxy (orange cloud) enabled? This configures Traefik and CrowdSec to trust Cloudflare IP ranges for X-Forwarded-For.",
+						false,
+					) {
+						ips, err := FetchCloudflareIPRanges()
+						if err != nil {
+							fmt.Printf("Could not download Cloudflare IP lists from %s and %s (%v). Leaving Cloudflare proxy support off; fix network access and re-run the installer, or add ranges manually from https://www.cloudflare.com/ips/\n", CloudflareIPsV4URL, CloudflareIPsV6URL, err)
+						} else {
+							config.UseCloudflareProxy = true
+							config.CloudflareTrustedIPs = ips
+						}
+					}
 				}
 
 				config.DoCrowdsecInstall = true
@@ -524,6 +548,20 @@ func collectUserInput() Config {
 
 	config.EnableIPv6 = readBool("Is your server IPv6 capable?", true)
 	config.EnableGeoblocking = readBool("Do you want to download the MaxMind GeoLite2 database for geoblocking functionality?", true)
+
+	config.UseCloudflareProxy = readBool(
+		"Will visitors reach this server through Cloudflare DNS with proxy (orange cloud) enabled? This configures Traefik and CrowdSec to trust Cloudflare IP ranges for X-Forwarded-For.",
+		false,
+	)
+	if config.UseCloudflareProxy {
+		ips, err := FetchCloudflareIPRanges()
+		if err != nil {
+			fmt.Printf("Could not download Cloudflare IP lists from %s and %s (%v). Leaving Cloudflare proxy support off; fix network access and re-run the installer, or add ranges manually from https://www.cloudflare.com/ips/\n", CloudflareIPsV4URL, CloudflareIPsV6URL, err)
+			config.UseCloudflareProxy = false
+		} else {
+			config.CloudflareTrustedIPs = ips
+		}
+	}
 
 	if config.DashboardDomain == "" {
 		fmt.Println("Error: Dashboard Domain name is required")

@@ -76,8 +76,19 @@ certificatesResolvers:
 entryPoints:
   web:
     address: ":80"
+{{if .UseCloudflareProxy}}
+    forwardedHeaders:
+      trustedIPs: &cloudflare_trusted_ips
+{{range .CloudflareTrustedIPs}}
+        - "{{.}}"
+{{end}}
+{{end}}
   websecure:
     address: ":443"
+{{if .UseCloudflareProxy}}
+    forwardedHeaders:
+      trustedIPs: *cloudflare_trusted_ips
+{{end}}
     transport:
       respondingTimeouts:
         readTimeout: "30m"

@@ -51,7 +51,11 @@ http:
           crowdsecLapiHost: crowdsec:8080 # CrowdSec
           crowdsecLapiScheme: http # CrowdSec API scheme
           forwardedHeadersTrustedIPs: # Forwarded headers trusted IPs
-            - "0.0.0.0/0" # All IP addresses are trusted for forwarded headers (CHANGE MADE HERE)
+{{if .UseCloudflareProxy}}{{range .CloudflareTrustedIPs}}
+            - "{{.}}"
+{{end}}{{else}}
+            - "0.0.0.0/0" # Trust all (use installer Cloudflare option or restrict manually)
+{{end}}
           clientTrustedIPs: # Client trusted IPs (CHANGE MADE HERE)
             - "10.0.0.0/8" # Internal LAN IP addresses
             - "172.16.0.0/12" # Internal LAN IP addresses

@@ -39,9 +39,11 @@ type DynamicConfig struct {
 
 // TraefikConfigValues holds the extracted configuration values
 type TraefikConfigValues struct {
-	DashboardDomain  string
-	LetsEncryptEmail string
-	BadgerVersion    string
+	DashboardDomain        string
+	LetsEncryptEmail       string
+	BadgerVersion          string
+	UseCloudflareProxy     bool
+	CloudflareTrustedIPs   []string
 }
 
 // AppConfig represents the app section of the config.yml
@@ -76,7 +78,56 @@ func ReadTraefikConfig(mainConfigPath string) (*TraefikConfigValues, error) {
 		LetsEncryptEmail: mainConfig.CertificatesResolvers.LetsEncrypt.Acme.Email,
 	}
 
+	if ips, ok := parseTraefikWebTrustedIPs(mainConfigData); ok {
+		values.UseCloudflareProxy = true
+		values.CloudflareTrustedIPs = ips
+	}
+
 	return values, nil
+}
+
+// parseTraefikWebTrustedIPs returns trusted CIDRs from entryPoints.web.forwardedHeaders.trustedIPs if present.
+func parseTraefikWebTrustedIPs(data []byte) ([]string, bool) {
+	var root map[string]any
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, false
+	}
+	eps, ok := root["entryPoints"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	web, ok := eps["web"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	fh, ok := web["forwardedHeaders"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	return trustedIPsToStrings(fh["trustedIPs"])
+}
+
+func trustedIPsToStrings(v any) ([]string, bool) {
+	if v == nil {
+		return nil, false
+	}
+	switch t := v.(type) {
+	case []any:
+		var out []string
+		for _, x := range t {
+			if s, ok := x.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, len(out) > 0
+	case []string:
+		if len(t) == 0 {
+			return nil, false
+		}
+		return t, true
+	default:
+		return nil, false
+	}
 }
 
 func ReadAppConfig(configPath string) (*AppConfigValues, error) {
